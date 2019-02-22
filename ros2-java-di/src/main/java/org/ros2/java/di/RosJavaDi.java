@@ -41,8 +41,8 @@ public class RosJavaDi {
 	private SingleThreadedExecutor executor;
 	private BaseComposableNode composablenode;
 
-	public RosJavaDi(String name, String[] args) {
-		Ros2JavaLibraries.installLibraryLoader();
+	public RosJavaDi(String name, String[] args) throws Exception {
+		Ros2JavaLibraries.unpack();
 		contextHandle = RCLJava.rclJavaInit(args);
 		executor = new SingleThreadedExecutor();
 		composablenode = new BaseComposableNode(name, args, true, contextHandle);

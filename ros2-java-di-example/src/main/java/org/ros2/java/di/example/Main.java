@@ -5,7 +5,7 @@ import org.ros2.java.di.exceptions.CreationException;
 
 public class Main {
 	
-	public static void main(String[] args) throws CreationException {
+	public static void main(String[] args) throws Exception {
 		RosJavaDi rosJavaDi = new RosJavaDi("rosjavadi_example", args);
 		rosJavaDi.create(DemoPublisher.class);
 		rosJavaDi.create(DemoSubscriber.class);
