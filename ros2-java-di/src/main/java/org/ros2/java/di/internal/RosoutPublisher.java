@@ -3,6 +3,7 @@ package org.ros2.java.di.internal;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
+import org.ros2.java.di.Clock;
 import org.ros2.rcljava.node.Node;
 import org.ros2.rcljava.publisher.Publisher;
 
@@ -13,11 +14,12 @@ public class RosoutPublisher {
 
 	private Node node;
 	private Publisher<rcl_interfaces.msg.Log> publisher;
+	private Clock clock;
 
-	public RosoutPublisher(Node node) {
+	public RosoutPublisher(Node node, Clock clock) {
 		this.node = node;
 		this.publisher = node.createPublisher(rcl_interfaces.msg.Log.class, "/rosout");
-		// TODO: add time / clock when it is ready
+		this.clock = clock;
 	}
 
 	public void publish(byte level, String sourceClass, String sourceMethod, int line, Object message, Throwable throwable) {
@@ -29,8 +31,7 @@ public class RosoutPublisher {
 
 	public void publish(byte level, String sourceClass, String sourceMethod, int line, Object message) {
 		rcl_interfaces.msg.Log logMessage = new rcl_interfaces.msg.Log();
-		//TODO: add time / clock when it is ready
-		//logMessage.setStamp(0);
+		logMessage.setStamp(clock.timeNow());
 		logMessage.setLevel(level);
 		logMessage.setName(node.getName());
 		logMessage.setMsg(message.toString());

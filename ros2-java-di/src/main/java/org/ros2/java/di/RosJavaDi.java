@@ -21,6 +21,7 @@ import org.ros2.java.di.annotations.Init;
 import org.ros2.java.di.annotations.Publish;
 import org.ros2.java.di.annotations.Repeat;
 import org.ros2.java.di.annotations.Subscribe;
+import org.ros2.java.di.annotations.SystemClock;
 import org.ros2.java.di.exceptions.CreationException;
 import org.ros2.java.di.internal.Initializer;
 import org.ros2.java.di.internal.ParameterReference;
@@ -50,6 +51,7 @@ public class RosJavaDi {
 	public static AtomicReference<RosoutPublisher> ROSOUT_PUBLISHER = new AtomicReference<>();
 
 	private Object monitor = new Object();
+	private Clock clock = new Clock();
 
 	private ArrayList<Initializer> initializers = new ArrayList<>();
 	private ArrayList<Repeater> repeaters = new ArrayList<>();
@@ -79,7 +81,7 @@ public class RosJavaDi {
 
 	public void start() throws NoSuchFieldException, IllegalAccessException {
 		// create logging publisher
-		ROSOUT_PUBLISHER.set(new RosoutPublisher(node));
+		ROSOUT_PUBLISHER.set(new RosoutPublisher(node, clock));
 		
 		// get all the parameters
 		for (ParameterReference ref : parameterReferences) {
@@ -106,6 +108,22 @@ public class RosJavaDi {
 		}
 
 		// add callback on parameter change
+		registerParameterChangeCallback();
+
+		executor.addNode(composablenode);
+
+		new Thread(() -> {
+			while (RCLJava.ok(contextHandle)) {
+				try {
+					executor.spinOnce();
+				} catch (Throwable t) {
+					LOG.warn("Exception in executor.spinOnce()", t);
+				}
+			}
+		}).start();
+	}
+
+	private void registerParameterChangeCallback() {
 		composablenode.getNode().setParameterChangeCallback(new ParameterCallback() {
 			@Override
 			public SetParametersResult onParamChange(List<ParameterVariant> parameters) {
@@ -131,18 +149,6 @@ public class RosJavaDi {
 				}
 			}
 		});
-
-		executor.addNode(composablenode);
-
-		new Thread(() -> {
-			while (RCLJava.ok(contextHandle)) {
-				try {
-					executor.spinOnce();
-				} catch (Throwable t) {
-					LOG.warn("Exception in executor.spinOnce()", t);
-				}
-			}
-		}).start();
 	}
 
 	public void shutdown() {
@@ -213,6 +219,7 @@ public class RosJavaDi {
 			for (Field field : clazz.getDeclaredFields()) {
 				injectPublishers(field, object);
 				collectParameters(field, object);
+				injectClock(field, object);
 			}
 
 			// for each method
@@ -433,6 +440,14 @@ public class RosJavaDi {
 					+ variant.getTypeName(), e);
 		}
 
+	}
+
+	private <T> void injectClock(Field field, T object) throws IllegalArgumentException, IllegalAccessException {
+		SystemClock systemClock = field.getAnnotation(SystemClock.class);
+		if(systemClock!=null) {
+			makeAccessible(field);
+			field.set(object,systemClock);
+		}
 	}
 
 	private <T> void createSubscribers(Method method, T object) throws CreationException {
