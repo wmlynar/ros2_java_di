@@ -1,7 +1,6 @@
 package org.ros2.java.di.example;
 
 import org.ros2.java.di.RosJavaDi;
-import org.ros2.java.di.exceptions.CreationException;
 
 public class Main {
 	

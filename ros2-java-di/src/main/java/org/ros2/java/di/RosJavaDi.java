@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -26,6 +27,7 @@ import org.ros2.java.di.internal.ParameterReference;
 import org.ros2.java.di.internal.Repeater;
 import org.ros2.java.di.internal.RosJavaDiLog;
 import org.ros2.java.di.internal.RosJavaSubscriber;
+import org.ros2.java.di.internal.RosoutPublisher;
 import org.ros2.java.maven.Ros2JavaLibraries;
 import org.ros2.rcljava.RCLJava;
 import org.ros2.rcljava.executors.SingleThreadedExecutor;
@@ -45,6 +47,7 @@ import rcl_interfaces.msg.SetParametersResult;
 public class RosJavaDi {
 
 	private static Log LOG = LogFactory.getLog(RosJavaDi.class);
+	public static AtomicReference<RosoutPublisher> ROSOUT_PUBLISHER = new AtomicReference<>();
 
 	private Object monitor = new Object();
 
@@ -63,7 +66,7 @@ public class RosJavaDi {
 	private AsyncParametersClientImpl asyncParametersClient;
 	
 	private Yaml yaml = new Yaml();
-	
+
 	public RosJavaDi(String name, String[] args) throws Exception {
 		Ros2JavaLibraries.unpack();
 		contextHandle = RCLJava.rclJavaInit(args);
@@ -75,6 +78,9 @@ public class RosJavaDi {
 	}
 
 	public void start() throws NoSuchFieldException, IllegalAccessException {
+		// create logging publisher
+		ROSOUT_PUBLISHER.set(new RosoutPublisher(node));
+		
 		// get all the parameters
 		for (ParameterReference ref : parameterReferences) {
 			processParameterReference(ref);
@@ -492,7 +498,7 @@ public class RosJavaDi {
 		}
 
 		String topicName = publish.value();
-		return composablenode.getNode().createPublisher(topicTypeCasted, topicName);
+		return node.createPublisher(topicTypeCasted, topicName);
 	}
 
 	private Class<?> getGenericParameterType(Type param) {

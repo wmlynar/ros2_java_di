@@ -41,7 +41,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.ros2.java</groupId>
-			<artifactId>rosgraph_msgs_messages</artifactId>
+			<artifactId>buildin_interfaces_messages</artifactId>
 			<version>0.0.20190222-SNAPSHOT</version>
 		</dependency>
 	</dependencies>

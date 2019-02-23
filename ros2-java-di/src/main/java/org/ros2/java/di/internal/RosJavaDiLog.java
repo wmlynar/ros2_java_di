@@ -6,6 +6,7 @@ import java.util.logging.Logger;
 
 import org.apache.commons.logging.Log;
 import org.ros2.java.di.LogSeldom;
+import org.ros2.java.di.RosJavaDi;
 
 /**
  * Wrapper around org.apache.commons.logging.Log that sends the log to /rosout
@@ -140,17 +141,17 @@ public class RosJavaDiLog implements Log, LogSeldom {
 			if (seldom && line >= 0 && shouldOmitMessage(cname, line)) {
 				return;
 			}
-			//RosoutPublisher publisher = RosJavaDi.ROSOUT_PUBLISHER.get();
+			RosoutPublisher publisher = RosJavaDi.ROSOUT_PUBLISHER.get();
 			if (ex == null) {
 				logger.logp(level, cname, method, msg);
-//				if (publisher != null) {
-//					publisher.publish(roslevel, cname, method, line, msg);
-//				}
+				if (publisher != null) {
+					publisher.publish(roslevel, cname, method, line, msg);
+				}
 			} else {
 				logger.logp(level, cname, method, msg, ex);
-//				if (publisher != null) {
-//					publisher.publish(roslevel, cname, method, line, msg, ex);
-//				}
+				if (publisher != null) {
+					publisher.publish(roslevel, cname, method, line, msg, ex);
+				}
 			}
 		}
 	}
