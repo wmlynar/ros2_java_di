@@ -7,6 +7,11 @@ import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -16,16 +21,23 @@ import org.ros2.java.di.annotations.Repeat;
 import org.ros2.java.di.annotations.Subscribe;
 import org.ros2.java.di.exceptions.CreationException;
 import org.ros2.java.di.internal.Initializer;
+import org.ros2.java.di.internal.ParameterReference;
 import org.ros2.java.di.internal.Repeater;
 import org.ros2.java.di.internal.RosJavaDiLog;
 import org.ros2.java.di.internal.RosJavaSubscriber;
 import org.ros2.java.maven.Ros2JavaLibraries;
 import org.ros2.rcljava.RCLJava;
-import org.ros2.rcljava.common.JNIUtils;
 import org.ros2.rcljava.executors.SingleThreadedExecutor;
 import org.ros2.rcljava.interfaces.MessageDefinition;
 import org.ros2.rcljava.node.BaseComposableNode;
+import org.ros2.rcljava.parameters.ParameterCallback;
+import org.ros2.rcljava.parameters.ParameterType;
+import org.ros2.rcljava.parameters.ParameterVariant;
+import org.ros2.rcljava.parameters.client.AsyncParametersClientImpl;
+import org.ros2.rcljava.parameters.service.ParameterServiceImpl;
 import org.ros2.rcljava.publisher.Publisher;
+
+import rcl_interfaces.msg.SetParametersResult;
 
 public class RosJavaDi {
 
@@ -36,19 +48,32 @@ public class RosJavaDi {
 	private ArrayList<Initializer> initializers = new ArrayList<>();
 	private ArrayList<Repeater> repeaters = new ArrayList<>();
 	private ArrayList<RosJavaSubscriber<?>> subscribers = new ArrayList<>();
+	private ArrayList<ParameterReference> parameterReferences = new ArrayList<>();
+	private HashMap<String, ParameterReference> parameterReferenceMap = new HashMap<>();
 
 	private long contextHandle;
 	private SingleThreadedExecutor executor;
 	private BaseComposableNode composablenode;
+
+	@SuppressWarnings("unused")
+	private ParameterServiceImpl parametersService;
+	private AsyncParametersClientImpl asyncParametersClient;
 
 	public RosJavaDi(String name, String[] args) throws Exception {
 		Ros2JavaLibraries.unpack();
 		contextHandle = RCLJava.rclJavaInit(args);
 		executor = new SingleThreadedExecutor();
 		composablenode = new BaseComposableNode(name, args, true, contextHandle);
+		parametersService = new ParameterServiceImpl(composablenode.getNode());
+		asyncParametersClient = new AsyncParametersClientImpl(composablenode.getNode(), contextHandle);
 	}
 
-	public void start() {
+	public void start() throws NoSuchFieldException, IllegalAccessException {
+		// get all the parameters
+		for (ParameterReference ref : parameterReferences) {
+			processParameterReference(ref);
+		}
+
 		// start all initializers
 		for (Initializer initializer : initializers) {
 			try {
@@ -68,12 +93,49 @@ public class RosJavaDi {
 			subscriber.start();
 		}
 
+		// add callback on parameter change
+		composablenode.getNode().setParameterChangeCallback(new ParameterCallback() {
+			@Override
+			public SetParametersResult onParamChange(List<ParameterVariant> parameters) {
+				try {
+					for (ParameterVariant parameter : parameters) {
+						LOG.info("Parameter callback: " + parameter.getName() + " " + parameter.getTypeName() + " "
+								+ parameter.getValueAsString() + " " + parameter.getType().toString());
+						ParameterReference ref = parameterReferenceMap.get(parameter.getName());
+						if (ref == null) {
+							LOG.warn("Unknown parameter: " + parameter.toString());
+						} else {
+							setParameterValueFromServer(ref.object, ref.field, parameter);
+						}
+					}
+					SetParametersResult result = new SetParametersResult();
+					result.setSuccessful(true);
+					return result;
+				} catch (Throwable t) {
+					LOG.warn("Exception in parameter callback", t);
+					SetParametersResult result = new SetParametersResult();
+					result.setSuccessful(false);
+					return result;
+				}
+			}
+		});
+
 		executor.addNode(composablenode);
-		executor.spin(contextHandle);
-		executor.removeNode(composablenode);
+
+		new Thread(() -> {
+			while (RCLJava.ok(contextHandle)) {
+				try {
+					executor.spinOnce();
+				} catch (Throwable t) {
+					LOG.warn("Exception in executor.spinOnce()", t);
+				}
+			}
+		}).start();
 	}
 
 	public void shutdown() {
+		executor.removeNode(composablenode);
+
 		RCLJava.shutdown(contextHandle);
 
 		// shutdown all repeaters
@@ -138,7 +200,7 @@ public class RosJavaDi {
 			// for each field
 			for (Field field : clazz.getDeclaredFields()) {
 				injectPublishers(field, object);
-				injectParameters(field, object);
+				collectParameters(field, object);
 			}
 
 			// for each method
@@ -209,7 +271,7 @@ public class RosJavaDi {
 		}
 	}
 
-	private <T> void injectParameters(Field field, T object) throws CreationException, IllegalAccessException {
+	private <T> void collectParameters(Field field, T object) throws CreationException, IllegalAccessException {
 		// inject parameters
 		org.ros2.java.di.annotations.Parameter parameter = field
 				.getAnnotation(org.ros2.java.di.annotations.Parameter.class);
@@ -217,11 +279,15 @@ public class RosJavaDi {
 			makeAccessible(field);
 
 			String parameterName = parameter.value();
-			injectParameter(object, field, parameterName);
+			ParameterReference ref = collectParameter(object, field, parameterName);
+			parameterReferences.add(ref);
+			parameterReferenceMap.put(ref.parameterName, ref);
 		}
 	}
 
-	private <T> void injectParameter(T object, Field field, String parameterName) throws IllegalAccessException {
+	private <T> ParameterReference collectParameter(T object, Field field, String parameterName)
+			throws IllegalAccessException {
+
 //        parameterName = prefixParameterName(parameterName);
 //        if (parameterTree.has(parameterName)) {
 //                setParameterValueFromServer(object, field, parameterName);
@@ -240,6 +306,155 @@ public class RosJavaDi {
 //                        }
 //                }
 //        });
+
+		Future<List<ParameterVariant>> future = asyncParametersClient.getParameters(Arrays.asList(parameterName));
+		return new ParameterReference(parameterName, object, field, future);
+
+	}
+
+	private void processParameterReference(ParameterReference ref) {
+		ParameterVariant variant = null;
+		try {
+			List<ParameterVariant> variants = ref.future.get();
+			if (variants.isEmpty()) {
+				LOG.info("Missing parameter: " + ref.parameterName);
+			} else {
+				variant = variants.get(0);
+			}
+		} catch (InterruptedException | ExecutionException e) {
+			LOG.info("Error getting: " + ref.parameterName, e);
+		}
+		if (variant == null) {
+			publishParameter(ref.object, ref.field, ref.parameterName);
+		} else {
+			setParameterValueFromServer(ref.object, ref.field, variant);
+		}
+	}
+
+	private <T> void publishParameter(T object, Field field, String parameterName) {
+		try {
+			Object value = field.get(object);
+			Class<?> type = field.getType();
+
+			if (Boolean.class.isAssignableFrom(type) || boolean.class.isAssignableFrom(type)) {
+				if (value != null) {
+					asyncParametersClient.setParameters(
+							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, (Boolean) value)));
+				} else {
+					asyncParametersClient
+							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+				}
+			} else if (Integer.class.isAssignableFrom(type) || int.class.isAssignableFrom(type)) {
+				if (value != null) {
+					asyncParametersClient.setParameters(
+							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, (Integer) value)));
+				} else {
+					asyncParametersClient
+							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+				}
+			} else if (Double.class.isAssignableFrom(type) || double.class.isAssignableFrom(type)) {
+				if (value != null) {
+					asyncParametersClient.setParameters(
+							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, (Double) value)));
+				} else {
+					asyncParametersClient
+							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+				}
+//			} else if (List.class.isAssignableFrom(type)) {
+//				if (value != null) {
+//					parameterTree.set(parameterName, (List<?>) value);
+//				} else {
+//					parameterTree.set(parameterName, new ArrayList<>());
+//				}
+//			} else if (Map.class.isAssignableFrom(type)) {
+//				if (value != null) {
+//					parameterTree.set(parameterName, (Map<?, ?>) value);
+//				} else {
+//					parameterTree.set(parameterName, new HashMap<>());
+//				}
+			} else { // if (String.class.isAssignableFrom(type)) {
+				if (value != null) {
+					asyncParametersClient.setParameters(
+							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, value.toString())));
+				} else {
+					asyncParametersClient
+							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+				}
+			}
+		} catch (IllegalArgumentException | IllegalAccessException e) {
+			LOG.info("Error getting parameter value: " + parameterName, e);
+		}
+	}
+
+	private <T> void setParameterValueFromServer(T object, Field field, ParameterVariant variant) {
+		Class<?> type = field.getType();
+		try {
+			if (Boolean.class.isAssignableFrom(type) || boolean.class.isAssignableFrom(type)) {
+				if (variant.getType() == ParameterType.PARAMETER_STRING) {
+					field.set(object, Boolean.parseBoolean(variant.asString()));
+				} else {
+					field.set(object, variant.asBool());
+				}
+			} else if (Integer.class.isAssignableFrom(type) || int.class.isAssignableFrom(type)) {
+				if (variant.getType() == ParameterType.PARAMETER_STRING) {
+					field.set(object, (int) Double.parseDouble(variant.asString()));
+				} else if (variant.getType() == ParameterType.PARAMETER_DOUBLE) {
+					field.set(object, (int) variant.asDouble());
+				} else {
+					field.set(object, (int) variant.asInt());
+				}
+			} else if (Double.class.isAssignableFrom(type) || double.class.isAssignableFrom(type)) {
+				if (variant.getType() == ParameterType.PARAMETER_STRING) {
+					field.set(object, Double.parseDouble(variant.asString()));
+				} else if (variant.getType() == ParameterType.PARAMETER_INTEGER) {
+					field.set(object, (double) variant.asInt());
+				} else {
+					field.set(object, variant.asDouble());
+				}
+			} else if (String.class.isAssignableFrom(type)) {
+				if (variant.getType() == ParameterType.PARAMETER_INTEGER) {
+					field.set(object, Long.toString(variant.asInt()));
+				} else if (variant.getType() == ParameterType.PARAMETER_DOUBLE) {
+					field.set(object, Double.toString(variant.asDouble()));
+				} else if (variant.getType() == ParameterType.PARAMETER_BOOL) {
+					field.set(object, Boolean.toString(variant.asBool()));
+				} else {
+					field.set(object, variant.asString());
+				}
+			}
+//			} else if (List.class.isAssignableFrom(type)) {
+//				if (List.class.isAssignableFrom(parameterType)) {
+//					field.set(object, parameterValue);
+//				} else if (String.class.isAssignableFrom(parameterType)) {
+//					field.set(object, yaml.load((String) parameterValue));
+//				} else {
+//					List<?> list = Arrays.asList((Object[]) parameterValue);
+//					field.set(object, list);
+//				}
+//			} else if (Map.class.isAssignableFrom(type)) {
+//				if (String.class.isAssignableFrom(parameterType)) {
+//					field.set(object, yaml.load((String) parameterValue));
+//				} else {
+//					field.set(object, parameterValue);
+//				}
+//			}
+		} catch (NumberFormatException e) {
+			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
+					+ ", wrong number format " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName(),
+					e);
+		} catch (IllegalArgumentException e) {
+			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
+					+ ", incompatible types " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName()
+					+ ", for exmple consider maing it a List not an ArrayList", e);
+		} catch (ClassCastException e) {
+			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
+					+ ", incompatible types " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName()
+					+ ", for example consider maing it a List not an ArrayList", e);
+		} catch (IllegalAccessException e) {
+			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
+					+ ", illegal access " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName(), e);
+		}
+
 	}
 
 	private <T> void createSubscribers(Method method, T object) throws CreationException {
