@@ -20,6 +20,7 @@ import org.apache.commons.logging.LogFactory;
 import org.ros2.java.di.annotations.Init;
 import org.ros2.java.di.annotations.Publish;
 import org.ros2.java.di.annotations.Repeat;
+import org.ros2.java.di.annotations.RosClock;
 import org.ros2.java.di.annotations.Subscribe;
 import org.ros2.java.di.annotations.SystemClock;
 import org.ros2.java.di.exceptions.CreationException;
@@ -447,6 +448,10 @@ public class RosJavaDi {
 		if(systemClock!=null) {
 			makeAccessible(field);
 			field.set(object,systemClock);
+		}
+		RosClock rosClock = field.getAnnotation(RosClock.class);
+		if(rosClock!=null) {
+			throw new UnsupportedOperationException("Ros clock will be supported in the next release");
 		}
 	}
 
