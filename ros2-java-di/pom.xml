@@ -41,7 +41,7 @@
 		</dependency>
 		<dependency>
 			<groupId>org.ros2.java</groupId>
-			<artifactId>buildin_interfaces_messages</artifactId>
+			<artifactId>builtin_interfaces_messages</artifactId>
 			<version>0.0.20190222-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
