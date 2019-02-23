@@ -30,6 +30,7 @@ import org.ros2.rcljava.RCLJava;
 import org.ros2.rcljava.executors.SingleThreadedExecutor;
 import org.ros2.rcljava.interfaces.MessageDefinition;
 import org.ros2.rcljava.node.BaseComposableNode;
+import org.ros2.rcljava.node.Node;
 import org.ros2.rcljava.parameters.ParameterCallback;
 import org.ros2.rcljava.parameters.ParameterType;
 import org.ros2.rcljava.parameters.ParameterVariant;
@@ -54,7 +55,7 @@ public class RosJavaDi {
 	private long contextHandle;
 	private SingleThreadedExecutor executor;
 	private BaseComposableNode composablenode;
-
+	private Node node;
 	@SuppressWarnings("unused")
 	private ParameterServiceImpl parametersService;
 	private AsyncParametersClientImpl asyncParametersClient;
@@ -64,6 +65,7 @@ public class RosJavaDi {
 		contextHandle = RCLJava.rclJavaInit(args);
 		executor = new SingleThreadedExecutor();
 		composablenode = new BaseComposableNode(name, args, true, contextHandle);
+		node = composablenode.getNode();
 		parametersService = new ParameterServiceImpl(composablenode.getNode());
 		asyncParametersClient = new AsyncParametersClientImpl(composablenode.getNode(), contextHandle);
 	}
@@ -285,28 +287,7 @@ public class RosJavaDi {
 		}
 	}
 
-	private <T> ParameterReference collectParameter(T object, Field field, String parameterName)
-			throws IllegalAccessException {
-
-//        parameterName = prefixParameterName(parameterName);
-//        if (parameterTree.has(parameterName)) {
-//                setParameterValueFromServer(object, field, parameterName);
-//        } else {
-//                publishParameter(object, field, parameterName);
-//        }
-//        parameterTree.addParameterListener(parameterName, new ParameterListener() {
-//
-//                @Override
-//                public void onNewValue(Object value) {
-//                        try {
-//                                setParameterValueFromObject(object, field, value);
-//                        } catch (IllegalArgumentException | IllegalAccessException e) {
-//                                log.error("Exception caught while setting parameter " + field.getName() + " in "
-//                                                + object.getClass().toGenericString() + " to value " + value.toString(), e);
-//                        }
-//                }
-//        });
-
+	private <T> ParameterReference collectParameter(T object, Field field, String parameterName) {
 		Future<List<ParameterVariant>> future = asyncParametersClient.getParameters(Arrays.asList(parameterName));
 		return new ParameterReference(parameterName, object, field, future);
 
@@ -338,27 +319,24 @@ public class RosJavaDi {
 
 			if (Boolean.class.isAssignableFrom(type) || boolean.class.isAssignableFrom(type)) {
 				if (value != null) {
-					asyncParametersClient.setParameters(
+					node.setParameters(
 							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, (Boolean) value)));
 				} else {
-					asyncParametersClient
-							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+					node.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
 				}
 			} else if (Integer.class.isAssignableFrom(type) || int.class.isAssignableFrom(type)) {
 				if (value != null) {
-					asyncParametersClient.setParameters(
+					node.setParameters(
 							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, (Integer) value)));
 				} else {
-					asyncParametersClient
-							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+					node.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
 				}
 			} else if (Double.class.isAssignableFrom(type) || double.class.isAssignableFrom(type)) {
 				if (value != null) {
-					asyncParametersClient.setParameters(
+					node.setParameters(
 							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, (Double) value)));
 				} else {
-					asyncParametersClient
-							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+					node.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
 				}
 //			} else if (List.class.isAssignableFrom(type)) {
 //				if (value != null) {
@@ -374,11 +352,10 @@ public class RosJavaDi {
 //				}
 			} else { // if (String.class.isAssignableFrom(type)) {
 				if (value != null) {
-					asyncParametersClient.setParameters(
+					node.setParameters(
 							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, value.toString())));
 				} else {
-					asyncParametersClient
-							.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
+					node.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
 				}
 			}
 		} catch (IllegalArgumentException | IllegalAccessException e) {
@@ -440,19 +417,20 @@ public class RosJavaDi {
 //			}
 		} catch (NumberFormatException e) {
 			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
-					+ ", wrong number format " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName(),
-					e);
+					+ ", wrong number format " + type + ", parameter: " + variant.getValueAsString() + " "
+					+ variant.getTypeName(), e);
 		} catch (IllegalArgumentException e) {
 			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
-					+ ", incompatible types " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName()
-					+ ", for exmple consider maing it a List not an ArrayList", e);
+					+ ", incompatible types " + type + ", parameter: " + variant.getValueAsString() + " "
+					+ variant.getTypeName() + ", for exmple consider maing it a List not an ArrayList", e);
 		} catch (ClassCastException e) {
 			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
-					+ ", incompatible types " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName()
-					+ ", for example consider maing it a List not an ArrayList", e);
+					+ ", incompatible types " + type + ", parameter: " + variant.getValueAsString() + " "
+					+ variant.getTypeName() + ", for example consider maing it a List not an ArrayList", e);
 		} catch (IllegalAccessException e) {
 			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
-					+ ", illegal access " + type + ", parameter: " + variant.getValueAsString() + " " + variant.getTypeName(), e);
+					+ ", illegal access " + type + ", parameter: " + variant.getValueAsString() + " "
+					+ variant.getTypeName(), e);
 		}
 
 	}
