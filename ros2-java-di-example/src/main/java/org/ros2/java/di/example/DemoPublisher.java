@@ -1,5 +1,7 @@
 package org.ros2.java.di.example;
 
+import java.util.List;
+
 import org.ros2.java.di.annotations.Init;
 import org.ros2.java.di.annotations.Parameter;
 import org.ros2.java.di.annotations.Publish;
@@ -14,6 +16,9 @@ public class DemoPublisher {
 	
 	@Parameter("parameter")
 	private int parameter = 0;
+	
+	@Parameter("list")
+	private List list;
 	
 	@Publish("topic")
 	Publisher<std_msgs.msg.String> stringPublisher;

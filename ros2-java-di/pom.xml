@@ -15,6 +15,11 @@
 			<version>1.2</version>
 		</dependency>
 		<dependency>
+			<groupId>org.yaml</groupId>
+			<artifactId>snakeyaml</artifactId>
+			<version>1.21</version>
+		</dependency>
+		<dependency>
 			<groupId>org.ros2.java</groupId>
 			<artifactId>ros2-java-maven</artifactId>
 			<version>0.0.20190222-SNAPSHOT</version>

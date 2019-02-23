@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -37,6 +38,7 @@ import org.ros2.rcljava.parameters.ParameterVariant;
 import org.ros2.rcljava.parameters.client.AsyncParametersClientImpl;
 import org.ros2.rcljava.parameters.service.ParameterServiceImpl;
 import org.ros2.rcljava.publisher.Publisher;
+import org.yaml.snakeyaml.Yaml;
 
 import rcl_interfaces.msg.SetParametersResult;
 
@@ -59,7 +61,9 @@ public class RosJavaDi {
 	@SuppressWarnings("unused")
 	private ParameterServiceImpl parametersService;
 	private AsyncParametersClientImpl asyncParametersClient;
-
+	
+	private Yaml yaml = new Yaml();
+	
 	public RosJavaDi(String name, String[] args) throws Exception {
 		Ros2JavaLibraries.unpack();
 		contextHandle = RCLJava.rclJavaInit(args);
@@ -338,18 +342,20 @@ public class RosJavaDi {
 				} else {
 					node.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "")));
 				}
-//			} else if (List.class.isAssignableFrom(type)) {
-//				if (value != null) {
-//					parameterTree.set(parameterName, (List<?>) value);
-//				} else {
-//					parameterTree.set(parameterName, new ArrayList<>());
-//				}
-//			} else if (Map.class.isAssignableFrom(type)) {
-//				if (value != null) {
-//					parameterTree.set(parameterName, (Map<?, ?>) value);
-//				} else {
-//					parameterTree.set(parameterName, new HashMap<>());
-//				}
+			} else if (List.class.isAssignableFrom(type)) {
+				if (value != null) {
+					node.setParameters(
+							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, yaml.dump(value))));
+				} else {
+					node.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "[]")));
+				}
+			} else if (Map.class.isAssignableFrom(type)) {
+				if (value != null) {
+					node.setParameters(
+							Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, yaml.dump(value))));
+				} else {
+					node.setParameters(Arrays.<ParameterVariant>asList(new ParameterVariant(parameterName, "{}")));
+				}
 			} else { // if (String.class.isAssignableFrom(type)) {
 				if (value != null) {
 					node.setParameters(
@@ -398,23 +404,11 @@ public class RosJavaDi {
 				} else {
 					field.set(object, variant.asString());
 				}
+			} else if (List.class.isAssignableFrom(type)) {
+				field.set(object, yaml.loadAs(variant.asString(), ArrayList.class));
+			} else if (Map.class.isAssignableFrom(type)) {
+				field.set(object, yaml.loadAs(variant.asString(), HashMap.class));
 			}
-//			} else if (List.class.isAssignableFrom(type)) {
-//				if (List.class.isAssignableFrom(parameterType)) {
-//					field.set(object, parameterValue);
-//				} else if (String.class.isAssignableFrom(parameterType)) {
-//					field.set(object, yaml.load((String) parameterValue));
-//				} else {
-//					List<?> list = Arrays.asList((Object[]) parameterValue);
-//					field.set(object, list);
-//				}
-//			} else if (Map.class.isAssignableFrom(type)) {
-//				if (String.class.isAssignableFrom(parameterType)) {
-//					field.set(object, yaml.load((String) parameterValue));
-//				} else {
-//					field.set(object, parameterValue);
-//				}
-//			}
 		} catch (NumberFormatException e) {
 			LOG.error("Cannot set parameter " + field.getName() + " in " + object.getClass().getCanonicalName()
 					+ ", wrong number format " + type + ", parameter: " + variant.getValueAsString() + " "
