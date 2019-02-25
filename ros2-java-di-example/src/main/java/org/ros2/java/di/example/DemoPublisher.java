@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import org.ros2.java.di.LogSeldom;
 import org.ros2.java.di.RosJavaDi;
 import org.ros2.java.di.annotations.Init;
+import org.ros2.java.di.annotations.Inject;
 import org.ros2.java.di.annotations.Parameter;
 import org.ros2.java.di.annotations.Publish;
 import org.ros2.java.di.annotations.Repeat;
@@ -26,6 +27,9 @@ public class DemoPublisher {
 
 	@Publish("/topic")
 	Publisher<std_msgs.msg.String> stringPublisher;
+	
+	@Inject
+	RosJavaDi rosJavaDi;
 
 	@Init
 	public void init() {
@@ -38,10 +42,12 @@ public class DemoPublisher {
 		msg.setData("Message " + counter++);
 		System.out.println("Publishing: " + msg.getData() + " parameter: " + parameter);
 		stringPublisher.publish(msg);
+		
+		rosJavaDi.wakeupRepeater(this, "repeatTestErrorMessage");
 	}
 
-	@Repeat(interval = 1000)
-	public void repeatErrorMessage() {
+	@Repeat(interval = 5000)
+	public void repeatTestErrorMessage() {
 		log.error("Test error message");
 	}
 }

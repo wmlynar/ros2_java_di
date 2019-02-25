@@ -15,8 +15,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.ros2.java.di.annotations.Init;
 import org.ros2.java.di.annotations.Inject;
 import org.ros2.java.di.annotations.InstanceName;
@@ -52,14 +50,20 @@ import rcl_interfaces.msg.SetParametersResult;
 
 public class RosJavaDi {
 
-	private static Log LOG = LogFactory.getLog(RosJavaDi.class);
+	private static LogSeldom LOG = RosJavaDi.getLog();
 	public static AtomicReference<RosoutPublisher> ROSOUT_PUBLISHER = new AtomicReference<>();
+
+	private String name;
+	private HashMap<String, String> parameters = new HashMap<>();
+	private HashMap<String, String> specialParameters = new HashMap<>();
+	private HashMap<String, String> remappings = new HashMap<>();
 
 	private Object monitor = new Object();
 	private Clock clock = new Clock();
 
 	private ArrayList<Initializer> initializers = new ArrayList<>();
 	private ArrayList<Repeater> repeaters = new ArrayList<>();
+	private HashMap<InstanceWithName, Thread> repeatersMap = new HashMap<>();
 	private ArrayList<RosJavaSubscriber<?>> subscribers = new ArrayList<>();
 	private ArrayList<ParameterReference> parameterReferences = new ArrayList<>();
 	private HashMap<String, ParameterReference> parameterReferenceMap = new HashMap<>();
@@ -78,6 +82,28 @@ public class RosJavaDi {
 	private Yaml yaml = new Yaml();
 
 	public RosJavaDi(String name, String[] args) throws Exception {
+		this.name = name;
+		for (int i = 0; i < args.length; i++) {
+			if (!args[i].contains(":=")) {
+				continue;
+			}
+			if (args[i].startsWith("_") && !args[i].startsWith("__")) {
+				int pos = args[i].indexOf(":=");
+				String parameterName = args[i].substring(1, pos);
+				String parameterValue = args[i].substring(pos + 2);
+				parameters.put(parameterName, parameterValue);
+			} else if (args[i].startsWith("__")) {
+				int pos = args[i].indexOf(":=");
+				String parameterName = args[i].substring(2, pos);
+				String parameterValue = args[i].substring(pos + 2);
+				specialParameters.put(parameterName, parameterValue);
+			} else if (!args[i].startsWith("_")) {
+				int pos = args[i].indexOf(":=");
+				String remappingName = args[i].substring(0, pos);
+				String remappingValue = args[i].substring(pos + 2);
+				remappings.put(remappingName, remappingValue);
+			}
+		}
 		Ros2JavaLibraries.unpack();
 		contextHandle = RCLJava.rclJavaInit(args);
 		executor = new SingleThreadedExecutor();
@@ -85,11 +111,14 @@ public class RosJavaDi {
 		node = composablenode.getNode();
 		parametersService = new ParameterServiceImpl(composablenode.getNode());
 		asyncParametersClient = new AsyncParametersClientImpl(composablenode.getNode(), contextHandle);
+		// create logging publisher
+		ROSOUT_PUBLISHER.set(new RosoutPublisher(node, clock));
 	}
 
 	public void start() throws NoSuchFieldException, IllegalAccessException, CreationException {
-		// create logging publisher
-		ROSOUT_PUBLISHER.set(new RosoutPublisher(node, clock));
+		// add rosjavadi instance
+		instanceMap.put(new ClassWithName(this.getClass(), ""), this);
+		instancesToInjectList.add(new InstanceWithName(this, ""));
 
 		// inject dependencies
 		injectDependencies();
@@ -136,7 +165,7 @@ public class RosJavaDi {
 
 	public void shutdown() {
 		RCLJava.shutdown(contextHandle);
-		
+
 		executor.removeNode(composablenode);
 
 		// shutdown all repeaters
@@ -230,6 +259,15 @@ public class RosJavaDi {
 		return object;
 	}
 
+	public void wakeupRepeater(Object object, String methodName) {
+		Thread thread = repeatersMap.get(new InstanceWithName(object, methodName));
+		if (thread == null) {
+			LOG.errorSeldom("Cannot wakeup repeater " + object.getClass().getCanonicalName() + " " + methodName);
+		} else {
+			thread.interrupt();
+		}
+	}
+
 	private void registerParameterChangeCallback() {
 		node.setParameterChangeCallback(new ParameterCallback() {
 			@Override
@@ -301,6 +339,7 @@ public class RosJavaDi {
 			}
 		});
 		repeater.thread.start();
+		repeatersMap.put(new InstanceWithName(repeater.object, repeater.method.getName()), repeater.thread);
 	}
 
 	private <T> void injectPublishers(Field field, T object)
@@ -615,5 +654,4 @@ public class RosJavaDi {
 			field.setAccessible(true);
 		}
 	}
-
 }
