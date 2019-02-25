@@ -18,13 +18,17 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.ros2.java.di.annotations.Init;
+import org.ros2.java.di.annotations.Inject;
+import org.ros2.java.di.annotations.InstanceName;
 import org.ros2.java.di.annotations.Publish;
 import org.ros2.java.di.annotations.Repeat;
 import org.ros2.java.di.annotations.RosClock;
 import org.ros2.java.di.annotations.Subscribe;
 import org.ros2.java.di.annotations.SystemClock;
 import org.ros2.java.di.exceptions.CreationException;
+import org.ros2.java.di.internal.ClassWithName;
 import org.ros2.java.di.internal.Initializer;
+import org.ros2.java.di.internal.InstanceWithName;
 import org.ros2.java.di.internal.ParameterReference;
 import org.ros2.java.di.internal.Repeater;
 import org.ros2.java.di.internal.RosJavaDiLog;
@@ -60,6 +64,9 @@ public class RosJavaDi {
 	private ArrayList<ParameterReference> parameterReferences = new ArrayList<>();
 	private HashMap<String, ParameterReference> parameterReferenceMap = new HashMap<>();
 
+	private HashMap<ClassWithName, Object> instanceMap = new HashMap<>();
+	private ArrayList<InstanceWithName> instancesToInjectList = new ArrayList<>();
+
 	private long contextHandle;
 	private SingleThreadedExecutor executor;
 	private BaseComposableNode composablenode;
@@ -67,7 +74,7 @@ public class RosJavaDi {
 	@SuppressWarnings("unused")
 	private ParameterServiceImpl parametersService;
 	private AsyncParametersClientImpl asyncParametersClient;
-	
+
 	private Yaml yaml = new Yaml();
 
 	public RosJavaDi(String name, String[] args) throws Exception {
@@ -80,14 +87,20 @@ public class RosJavaDi {
 		asyncParametersClient = new AsyncParametersClientImpl(composablenode.getNode(), contextHandle);
 	}
 
-	public void start() throws NoSuchFieldException, IllegalAccessException {
+	public void start() throws NoSuchFieldException, IllegalAccessException, CreationException {
 		// create logging publisher
 		ROSOUT_PUBLISHER.set(new RosoutPublisher(node, clock));
-		
+
+		// inject dependencies
+		injectDependencies();
+
 		// get all the parameters
 		for (ParameterReference ref : parameterReferences) {
 			processParameterReference(ref);
 		}
+
+		// add callback on parameter change
+		registerParameterChangeCallback();
 
 		// start all initializers
 		for (Initializer initializer : initializers) {
@@ -108,54 +121,23 @@ public class RosJavaDi {
 			subscriber.start();
 		}
 
-		// add callback on parameter change
-		registerParameterChangeCallback();
-
+		// start spinning the node
 		executor.addNode(composablenode);
-
 		new Thread(() -> {
 			while (RCLJava.ok(contextHandle)) {
 				try {
 					executor.spinOnce();
 				} catch (Throwable t) {
-					LOG.warn("Exception in executor.spinOnce()", t);
+					LOG.error("Exception in executor.spinOnce()", t);
 				}
 			}
 		}).start();
 	}
 
-	private void registerParameterChangeCallback() {
-		composablenode.getNode().setParameterChangeCallback(new ParameterCallback() {
-			@Override
-			public SetParametersResult onParamChange(List<ParameterVariant> parameters) {
-				try {
-					for (ParameterVariant parameter : parameters) {
-						LOG.info("Parameter callback: " + parameter.getName() + " " + parameter.getTypeName() + " "
-								+ parameter.getValueAsString() + " " + parameter.getType().toString());
-						ParameterReference ref = parameterReferenceMap.get(parameter.getName());
-						if (ref == null) {
-							LOG.warn("Unknown parameter: " + parameter.toString());
-						} else {
-							setParameterValueFromServer(ref.object, ref.field, parameter);
-						}
-					}
-					SetParametersResult result = new SetParametersResult();
-					result.setSuccessful(true);
-					return result;
-				} catch (Throwable t) {
-					LOG.warn("Exception in parameter callback", t);
-					SetParametersResult result = new SetParametersResult();
-					result.setSuccessful(false);
-					return result;
-				}
-			}
-		});
-	}
-
 	public void shutdown() {
-		executor.removeNode(composablenode);
-
 		RCLJava.shutdown(contextHandle);
+		
+		executor.removeNode(composablenode);
 
 		// shutdown all repeaters
 		for (Repeater repeater : repeaters) {
@@ -188,7 +170,7 @@ public class RosJavaDi {
 	 */
 	public static LogSeldom getLog() {
 		Throwable dummyException = new Throwable();
-		StackTraceElement locations[] = dummyException.getStackTrace();
+		StackTraceElement[] locations = dummyException.getStackTrace();
 		String cname = "unknown";
 		if (locations != null && locations.length > 1) {
 			StackTraceElement caller = locations[1];
@@ -197,13 +179,21 @@ public class RosJavaDi {
 		return new RosJavaDiLog(cname);
 	}
 
+	public <T> T create(Class<T> clazz) throws CreationException {
+		return create(clazz, "");
+	}
+
+	public <T> T inject(T object) throws CreationException {
+		return inject(object, "");
+	}
+
 	/**
 	 * Creates new object of the given class and injects the properties according to
 	 * the annotations. Requires connectToRemoteMaster to be called before.
 	 */
-	public <T> T create(Class<T> clazz) throws CreationException {
+	public <T> T create(Class<T> clazz, String instanceName) throws CreationException {
 		try {
-			return inject(clazz.newInstance());
+			return inject(clazz.newInstance(), instanceName);
 		} catch (InstantiationException | IllegalAccessException e) {
 			throw new CreationException("Could not create class " + clazz.toGenericString(), e);
 		}
@@ -213,7 +203,7 @@ public class RosJavaDi {
 	 * Injects the properties according to the annotations. Requires
 	 * connectToRemoteMaster to be called before.
 	 */
-	public <T> T inject(T object) throws CreationException {
+	public <T> T inject(T object, String instanceName) throws CreationException {
 		Class<?> clazz = object.getClass();
 		try {
 			// for each field
@@ -221,6 +211,7 @@ public class RosJavaDi {
 				injectPublishers(field, object);
 				collectParameters(field, object);
 				injectClock(field, object);
+				injectInstanceName(field, object, instanceName);
 			}
 
 			// for each method
@@ -229,10 +220,42 @@ public class RosJavaDi {
 				collectRepeaters(method, object);
 				createSubscribers(method, object);
 			}
+
+			// cache the instances for dependency injection
+			instanceMap.put(new ClassWithName(object.getClass(), instanceName), object);
+			instancesToInjectList.add(new InstanceWithName(object, instanceName));
 		} catch (IllegalAccessException e) {
 			throw new CreationException("Exception while creating " + clazz.toString(), e);
 		}
 		return object;
+	}
+
+	private void registerParameterChangeCallback() {
+		node.setParameterChangeCallback(new ParameterCallback() {
+			@Override
+			public SetParametersResult onParamChange(List<ParameterVariant> parameters) {
+				try {
+					for (ParameterVariant parameter : parameters) {
+						LOG.info("Parameter callback: " + parameter.getName() + " " + parameter.getTypeName() + " "
+								+ parameter.getValueAsString() + " " + parameter.getType().toString());
+						ParameterReference ref = parameterReferenceMap.get(parameter.getName());
+						if (ref == null) {
+							LOG.warn("Unknown parameter: " + parameter.toString());
+						} else {
+							setParameterValueFromServer(ref.object, ref.field, parameter);
+						}
+					}
+					SetParametersResult result = new SetParametersResult();
+					result.setSuccessful(true);
+					return result;
+				} catch (Throwable t) {
+					LOG.warn("Exception in parameter callback", t);
+					SetParametersResult result = new SetParametersResult();
+					result.setSuccessful(false);
+					return result;
+				}
+			}
+		});
 	}
 
 	private void startRepeater(Repeater repeater) {
@@ -445,13 +468,66 @@ public class RosJavaDi {
 
 	private <T> void injectClock(Field field, T object) throws IllegalArgumentException, IllegalAccessException {
 		SystemClock systemClock = field.getAnnotation(SystemClock.class);
-		if(systemClock!=null) {
+		if (systemClock != null) {
 			makeAccessible(field);
-			field.set(object,systemClock);
+			field.set(object, clock);
 		}
 		RosClock rosClock = field.getAnnotation(RosClock.class);
-		if(rosClock!=null) {
+		if (rosClock != null) {
 			throw new UnsupportedOperationException("Ros clock will be supported in the next release");
+		}
+	}
+
+	private <T> void injectInstanceName(Field field, T object, String name)
+			throws IllegalAccessException, IllegalArgumentException, CreationException {
+		// inject instance name
+		InstanceName instanceName = field.getAnnotation(InstanceName.class);
+		if (instanceName != null) {
+			makeAccessible(field);
+			field.set(object, name);
+		}
+	}
+
+	private void injectDependencies() throws CreationException {
+		for (int i = 0; i < instancesToInjectList.size(); i++) {
+			InstanceWithName object = instancesToInjectList.get(i);
+			Class<?> clazz = object.instance.getClass();
+			try {
+				// for each field
+				for (Field field : clazz.getDeclaredFields()) {
+					Inject inject = field.getAnnotation(Inject.class);
+					if (inject != null) {
+						Class<?> type = field.getType();
+						String instanceName = inject.instance();
+						if (!instanceName.startsWith("/")) {
+							if (object.name.isEmpty() || instanceName.isEmpty()) {
+								instanceName = object.name + instanceName;
+							} else {
+								instanceName = object.name + "/" + instanceName;
+							}
+						}
+						ClassWithName c = new ClassWithName(type, instanceName);
+						Object instance = getInstance(c);
+						makeAccessible(field);
+						field.set(object.instance, instance);
+					}
+				}
+			} catch (IllegalAccessException e) {
+				throw new CreationException("Exception while injecting dependencies " + clazz.toString(), e);
+			}
+		}
+		instancesToInjectList.clear();
+	}
+
+	private Object getInstance(ClassWithName c) throws CreationException {
+		Object object = instanceMap.get(c);
+		if (object != null) {
+			return object;
+		}
+		if (!c.name.isEmpty()) {
+			return create(c.type, c.name);
+		} else {
+			return create(c.type);
 		}
 	}
 
