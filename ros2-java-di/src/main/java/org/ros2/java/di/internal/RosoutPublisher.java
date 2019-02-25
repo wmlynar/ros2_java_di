@@ -18,7 +18,7 @@ public class RosoutPublisher {
 
 	public RosoutPublisher(Node node, Clock clock) {
 		this.node = node;
-		this.publisher = node.createPublisher(rcl_interfaces.msg.Log.class, "/rosout");
+		this.publisher = node.createPublisher(rcl_interfaces.msg.Log.class, "/rosout2");
 		this.clock = clock;
 	}
 

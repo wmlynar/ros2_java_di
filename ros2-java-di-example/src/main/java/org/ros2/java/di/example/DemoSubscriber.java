@@ -10,7 +10,7 @@ public class DemoSubscriber {
 		System.out.println("Subscriber initialization");
 	}
 	
-	@Subscribe("topic")
+	@Subscribe("/topic")
 	public void stringSubscription(std_msgs.msg.String msg) {
 		System.out.println("Received: " + msg.getData());
 	}

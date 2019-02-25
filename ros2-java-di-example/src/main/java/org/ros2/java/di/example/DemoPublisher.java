@@ -24,7 +24,7 @@ public class DemoPublisher {
 	@Parameter("list")
 	private ArrayList<?> list;
 
-	@Publish("topic")
+	@Publish("/topic")
 	Publisher<std_msgs.msg.String> stringPublisher;
 
 	@Init
