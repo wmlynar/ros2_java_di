@@ -46,6 +46,8 @@ import org.ros2.rcljava.parameters.service.ParameterServiceImpl;
 import org.ros2.rcljava.publisher.Publisher;
 import org.yaml.snakeyaml.Yaml;
 
+import de.cronn.reflection.util.ClassUtils;
+import de.cronn.reflection.util.VoidMethod;
 import rcl_interfaces.msg.SetParametersResult;
 
 public class RosJavaDi {
@@ -266,6 +268,11 @@ public class RosJavaDi {
 		} else {
 			thread.interrupt();
 		}
+	}
+
+	public <T> void wakeupRepeater(T object, VoidMethod<T> method) {
+		String methodName = ClassUtils.getVoidMethodName(object, method);
+		wakeupRepeater(object, methodName);
 	}
 
 	private void registerParameterChangeCallback() {

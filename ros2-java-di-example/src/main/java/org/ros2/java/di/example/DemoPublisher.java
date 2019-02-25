@@ -11,6 +11,7 @@ import org.ros2.java.di.annotations.Publish;
 import org.ros2.java.di.annotations.Repeat;
 import org.ros2.rcljava.publisher.Publisher;
 
+import de.cronn.reflection.util.ClassUtils;
 import std_msgs.msg.String;
 
 public class DemoPublisher {
@@ -43,7 +44,7 @@ public class DemoPublisher {
 		System.out.println("Publishing: " + msg.getData() + " parameter: " + parameter);
 		stringPublisher.publish(msg);
 		
-		rosJavaDi.wakeupRepeater(this, "repeatTestErrorMessage");
+		rosJavaDi.wakeupRepeater(this, DemoPublisher::repeatTestErrorMessage);
 	}
 
 	@Repeat(interval = 5000)
