@@ -552,6 +552,10 @@ public class RosJavaDi {
 								instanceName = object.name + "/" + instanceName;
 							}
 						}
+						// when injecting RosJavaDi always use one instance
+						if(type.equals(this.getClass())) {
+							instanceName = "";
+						}
 						ClassWithName c = new ClassWithName(type, instanceName);
 						Object instance = getInstance(c);
 						makeAccessible(field);
