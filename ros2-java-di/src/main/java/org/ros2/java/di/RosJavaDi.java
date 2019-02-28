@@ -11,8 +11,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.ros2.java.di.annotations.Init;
@@ -93,7 +92,7 @@ public class RosJavaDi {
 				int pos = args[i].indexOf(":=");
 				String parameterName = args[i].substring(1, pos);
 				String parameterValue = args[i].substring(pos + 2);
-				parameters.put(parameterName, parameterValue);
+				parameters.put(graphNameOf("", parameterName), parameterValue);
 			} else if (args[i].startsWith("__")) {
 				int pos = args[i].indexOf(":=");
 				String parameterName = args[i].substring(2, pos);
@@ -103,7 +102,7 @@ public class RosJavaDi {
 				int pos = args[i].indexOf(":=");
 				String remappingName = args[i].substring(0, pos);
 				String remappingValue = args[i].substring(pos + 2);
-				remappings.put(remappingName, remappingValue);
+				remappings.put(graphNameOf("", remappingName), graphNameOf("", remappingValue));
 			}
 		}
 		Ros2JavaLibraries.unpack();
@@ -115,6 +114,14 @@ public class RosJavaDi {
 		asyncParametersClient = new AsyncParametersClientImpl(composablenode.getNode(), contextHandle);
 		// create logging publisher
 		ROSOUT_PUBLISHER.set(new RosoutPublisher(node, clock));
+
+		// add all parameters to node
+		ArrayList<ParameterVariant> parameterVariants = new ArrayList<>();
+		// process parameters from command line
+		for (Entry<String, String> parameter : parameters.entrySet()) {
+			parameterVariants.add(new ParameterVariant(parameter.getKey(), parameter.getValue()));
+		}
+		node.setParameters(parameterVariants);
 	}
 
 	public void start() throws NoSuchFieldException, IllegalAccessException, CreationException {
@@ -239,17 +246,17 @@ public class RosJavaDi {
 		try {
 			// for each field
 			for (Field field : clazz.getDeclaredFields()) {
-				injectPublishers(field, object);
-				collectParameters(field, object);
 				injectClock(field, object);
 				injectInstanceName(field, object, instanceName);
+				collectParameters(field, object, instanceName);
+				injectPublishers(field, object, instanceName);
 			}
 
 			// for each method
 			for (Method method : clazz.getDeclaredMethods()) {
 				collectInitializers(method, object);
 				collectRepeaters(method, object);
-				createSubscribers(method, object);
+				createSubscribers(method, object, instanceName);
 			}
 
 			// cache the instances for dependency injection
@@ -349,48 +356,40 @@ public class RosJavaDi {
 		repeatersMap.put(new InstanceWithName(repeater.object, repeater.method.getName()), repeater.thread);
 	}
 
-	private <T> void injectPublishers(Field field, T object)
+	private <T> void injectPublishers(Field field, T object, String instanceName)
 			throws IllegalAccessException, IllegalArgumentException, CreationException {
 		Publish publish = field.getAnnotation(Publish.class);
 		if (publish != null) {
 			makeAccessible(field);
 
-			Publisher<?> publisher = createPublisher(publish, field);
+			Publisher<?> publisher = createPublisher(publish, field, instanceName);
 			field.set(object, publisher);
 		}
 	}
 
-	private <T> void collectParameters(Field field, T object) throws CreationException, IllegalAccessException {
+	private <T> void collectParameters(Field field, T object, String instanceName) throws CreationException, IllegalAccessException {
 		// inject parameters
 		org.ros2.java.di.annotations.Parameter parameter = field
 				.getAnnotation(org.ros2.java.di.annotations.Parameter.class);
 		if (parameter != null) {
 			makeAccessible(field);
 
-			String parameterName = parameter.value();
-			ParameterReference ref = collectParameter(object, field, parameterName);
+			String parameterName = graphNameOf(instanceName, parameter.value());
+			ParameterReference ref = new ParameterReference(parameterName, object, field); 
 			parameterReferences.add(ref);
 			parameterReferenceMap.put(ref.parameterName, ref);
 		}
 	}
 
-	private <T> ParameterReference collectParameter(T object, Field field, String parameterName) {
-		Future<List<ParameterVariant>> future = asyncParametersClient.getParameters(Arrays.asList(parameterName));
-		return new ParameterReference(parameterName, object, field, future);
-
-	}
-
 	private void processParameterReference(ParameterReference ref) {
+		ArrayList<String> params = new ArrayList<>();
+		params.add(ref.parameterName);
 		ParameterVariant variant = null;
-		try {
-			List<ParameterVariant> variants = ref.future.get();
-			if (variants.isEmpty()) {
-				LOG.info("Missing parameter: " + ref.parameterName);
-			} else {
-				variant = variants.get(0);
-			}
-		} catch (InterruptedException | ExecutionException e) {
-			LOG.info("Error getting: " + ref.parameterName, e);
+		List<ParameterVariant> variants = node.getParameters(params);
+		if (variants.isEmpty()) {
+			LOG.info("Unset parameter: " + ref.parameterName  + ", getting default value");
+		} else {
+			variant = variants.get(0);
 		}
 		if (variant == null) {
 			publishParameter(ref.object, ref.field, ref.parameterName);
@@ -553,7 +552,7 @@ public class RosJavaDi {
 							}
 						}
 						// when injecting RosJavaDi always use one instance
-						if(type.equals(this.getClass())) {
+						if (type.equals(this.getClass())) {
 							instanceName = "";
 						}
 						ClassWithName c = new ClassWithName(type, instanceName);
@@ -581,21 +580,19 @@ public class RosJavaDi {
 		}
 	}
 
-	private <T> void createSubscribers(Method method, T object) throws CreationException {
+	private <T> void createSubscribers(Method method, T object, String instanceName) throws CreationException {
 		// create subscribers
 		Subscribe subscribe = method.getAnnotation(Subscribe.class);
 		if (subscribe != null) {
-			RosJavaSubscriber<?> subscriber = createSubscriber(subscribe, object, method);
+			RosJavaSubscriber<?> subscriber = createSubscriber(subscribe, object, method, instanceName);
 			synchronized (monitor) {
 				subscribers.add(subscriber);
 			}
 		}
 	}
 
-	private <T> RosJavaSubscriber<?> createSubscriber(Subscribe subscribe, T object, Method method)
+	private <T> RosJavaSubscriber<?> createSubscriber(Subscribe subscribe, T object, Method method, String instanceName)
 			throws CreationException {
-		String topicName = subscribe.value();
-
 		Parameter[] parameters = method.getParameters();
 		if (parameters.length != 1) {
 			throw new CreationException(
@@ -604,10 +601,16 @@ public class RosJavaDi {
 
 		Parameter parameter = parameters[0];
 		final Class<?> topicType = parameter.getType();
-		@SuppressWarnings("unchecked")
-		Class<? extends MessageDefinition> topicTypeCasted = (Class<? extends MessageDefinition>) topicType;
 		int timeout = subscribe.timeout();
 
+		String topicName = graphNameOf(instanceName, subscribe.value());
+		String remappedTopicName = remappings.get(topicName);
+		if (remappedTopicName != null) {
+			topicName = remappedTopicName;
+		}
+
+		@SuppressWarnings("unchecked")
+		Class<? extends MessageDefinition> topicTypeCasted = (Class<? extends MessageDefinition>) topicType;
 		return new RosJavaSubscriber<>(composablenode.getNode(), object, method, topicName, topicTypeCasted, timeout,
 				LOG);
 	}
@@ -630,20 +633,24 @@ public class RosJavaDi {
 		}
 	}
 
-	private Publisher<?> createPublisher(Publish publish, Field field) {
+	private Publisher<?> createPublisher(Publish publish, Field field, String instanceName) {
 		Type type = field.getGenericType();
 		Type[] typeArgs = ((ParameterizedType) type).getActualTypeArguments();
 
 		Class<?> topicType = getGenericParameterType(typeArgs[0]);
-		@SuppressWarnings("unchecked")
-		Class<? extends MessageDefinition> topicTypeCasted = (Class<? extends MessageDefinition>) topicType;
-
 		if (topicType == null) {
 			throw new UnsupportedClassVersionError(
 					"Unrecognized type parameter for publisher at " + field.toGenericString());
 		}
 
-		String topicName = publish.value();
+		String topicName = graphNameOf(instanceName, publish.value());
+		String remappedTopicName = remappings.get(topicName);
+		if (remappedTopicName != null) {
+			topicName = remappedTopicName;
+		}
+		
+		@SuppressWarnings("unchecked")
+		Class<? extends MessageDefinition> topicTypeCasted = (Class<? extends MessageDefinition>) topicType;
 		return node.createPublisher(topicTypeCasted, topicName);
 	}
 
@@ -663,6 +670,19 @@ public class RosJavaDi {
 	private void makeAccessible(Field field) {
 		if (!Modifier.isPublic(field.getModifiers())) {
 			field.setAccessible(true);
+		}
+	}
+	
+	private String graphNameOf(String instanceName, String name) {
+		if(name.startsWith("/")) {
+			return name;
+		} else {
+			if(instanceName.isEmpty()) {
+				return "/" + name;
+			} else {
+				return "/" + instanceName + "/" + name;
+				
+			}
 		}
 	}
 }
