@@ -8,6 +8,7 @@ public class Main {
 		RosJavaDi rosJavaDi = new RosJavaDi("rosjavadi_example", args);
 		rosJavaDi.create(DemoPublisher.class);
 		rosJavaDi.create(DemoSubscriber.class);
+		rosJavaDi.create(DemoNamedInstance.class, "name");
 		rosJavaDi.start();
 	}
 }
