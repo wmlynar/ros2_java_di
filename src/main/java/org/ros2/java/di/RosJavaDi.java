@@ -282,6 +282,10 @@ public class RosJavaDi {
 		wakeupRepeater(object, methodName);
 	}
 
+	public <T extends MessageDefinition> Publisher<T> createPublisher(String topicName, Class<? extends MessageDefinition> topicType) {
+		return (Publisher<T>) node.createPublisher(topicType, topicName);
+	}
+	
 	private void registerParameterChangeCallback() {
 		node.setParameterChangeCallback(new ParameterCallback() {
 			@Override
