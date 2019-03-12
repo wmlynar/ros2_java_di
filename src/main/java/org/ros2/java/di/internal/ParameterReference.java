@@ -1,10 +1,6 @@
 package org.ros2.java.di.internal;
 
 import java.lang.reflect.Field;
-import java.util.List;
-import java.util.concurrent.Future;
-
-import org.ros2.rcljava.parameters.ParameterVariant;
 
 public class ParameterReference {
 
