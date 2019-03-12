@@ -29,27 +29,27 @@
 		<dependency>
 			<groupId>org.ros2.java</groupId>
 			<artifactId>ros2-java-maven</artifactId>
-			<version>0.0.20190222-SNAPSHOT</version>
+			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.ros2.java</groupId>
 			<artifactId>rcljava</artifactId>
-			<version>0.0.20190222-SNAPSHOT</version>
+			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.ros2.java</groupId>
 			<artifactId>rcljava_common</artifactId>
-			<version>0.0.20190222-SNAPSHOT</version>
+			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.ros2.java</groupId>
 			<artifactId>rcl_interfaces_messages</artifactId>
-			<version>0.0.20190222-SNAPSHOT</version>
+			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 		<dependency>
 			<groupId>org.ros2.java</groupId>
 			<artifactId>builtin_interfaces_messages</artifactId>
-			<version>0.0.20190222-SNAPSHOT</version>
+			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
 </project>
