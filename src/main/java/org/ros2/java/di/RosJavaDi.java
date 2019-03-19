@@ -31,7 +31,6 @@ import org.ros2.java.di.internal.Repeater;
 import org.ros2.java.di.internal.RosJavaDiLog;
 import org.ros2.java.di.internal.RosJavaSubscriber;
 import org.ros2.java.di.internal.RosoutPublisher;
-import org.ros2.java.maven.Ros2JavaLibraries;
 import org.ros2.rcljava.RCLJava;
 import org.ros2.rcljava.executors.SingleThreadedExecutor;
 import org.ros2.rcljava.interfaces.MessageDefinition;
@@ -105,7 +104,6 @@ public class RosJavaDi {
 				remappings.put(graphNameOf("", remappingName), graphNameOf("", remappingValue));
 			}
 		}
-		Ros2JavaLibraries.unpack();
 		contextHandle = RCLJava.rclJavaInit(args);
 		executor = new SingleThreadedExecutor();
 		composablenode = new BaseComposableNode(name, args, true, contextHandle);
