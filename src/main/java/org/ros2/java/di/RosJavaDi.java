@@ -121,6 +121,10 @@ public class RosJavaDi {
 		}
 		node.setParameters(parameterVariants);
 	}
+	
+	public String getName() {
+		return name;
+	}
 
 	public void start() throws NoSuchFieldException, IllegalAccessException, CreationException {
 		// add rosjavadi instance
