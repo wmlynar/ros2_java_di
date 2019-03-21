@@ -5,11 +5,11 @@
 	<groupId>org.ros2.java</groupId>
 	<version>0.0.1-SNAPSHOT</version>
 	<artifactId>ros2-java-di</artifactId>
-        <properties>
-                <maven.compiler.source>1.8</maven.compiler.source>
-                <maven.compiler.target>1.8</maven.compiler.target>
-                <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        </properties>
+	<properties>
+		<maven.compiler.source>1.8</maven.compiler.source>
+		<maven.compiler.target>1.8</maven.compiler.target>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+	</properties>
 	<dependencies>
 		<!-- Required by rcljava (HashCodeBuilder and EqualsBuilder) -->
 		<dependency>
@@ -68,4 +68,10 @@
 			<version>0.0.1-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
+	<repositories>
+		<repository>
+			<id>ros2_java_maven_repo</id>
+			<url>https://raw.github.com/wmlynar/ros2_java_maven_repo/master/</url>
+		</repository>
+	</repositories>
 </project>
